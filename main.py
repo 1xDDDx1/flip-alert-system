@@ -725,19 +725,27 @@ def main():
                 
                 # Allegro
                 oferty_allegro = scraper.skanuj_allegro(fraza, max_results=5)
+                logger.info(f"📊 Allegro zwróciło: {len(oferty_allegro)} ofert")
                 
                 # OLX
                 oferty_olx = scraper.skanuj_olx(fraza, max_results=4)
+                logger.info(f"📊 OLX zwróciło: {len(oferty_olx)} ofert")
                 
                 # Vinted
                 oferty_vinted = scraper.skanuj_vinted(fraza, max_results=3)
+                logger.info(f"📊 Vinted zwróciło: {len(oferty_vinted)} ofert")
                 
                 # Facebook Marketplace
                 oferty_facebook = scraper.skanuj_facebook_marketplace(fraza, max_results=3)
+                logger.info(f"📊 Facebook zwróciło: {len(oferty_facebook)} ofert")
                 
                 # Połącz wszystkie oferty
                 all_oferty = oferty_allegro + oferty_olx + oferty_vinted + oferty_facebook
-                logger.info(f"📊 Łącznie {len(all_oferty)} ofert z wszystkich platform")
+                logger.info(f"📊 Po połączeniu: {len(all_oferty)} ofert z wszystkich platform")
+                
+                # Debug - sprawdź czy oferty są prawidłowe
+                for i, oferta in enumerate(all_oferty[:3]):  # Pierwsze 3 dla debugowania
+                    logger.info(f"🔍 Oferta {i+1}: {oferta.get('tytul', 'Brak tytułu')[:30]}... - {oferta.get('cena', 0)} PLN")
                 
                 for oferta in all_oferty:
                     try:
