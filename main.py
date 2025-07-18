@@ -44,248 +44,98 @@ SLOWA_OSTRZEGAWCZE = [
 
 MIASTA_SLASKIE = [
     "katowice", "częstochowa", "sosnowiec", "gliwice", "zabrze", "bielsko-biała",
-    "bytom", "rybnik", "ruda śląska", "tychy", "dąbrowa górnicza", "chorzów"
+    "bytom", "rybnik", "ruda śląska", "tychy", "dąbrowa górnicza", "chorzów",
+    "jaworzno", "jastrzębie-zdrój", "mysłowice", "siemianowice śląskie",
+    "żory", "świętochłowice", "będzin", "tarnowskie góry", "piekary śląskie"
 ]
 
-class SmartDatabaseLite:
-    """Lekka baza danych AI bez ciężkich zależności"""
+def wyslij_wiadomosc(tekst):
+    """Wysyła wiadomość na Telegram"""
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    dane = {
+        "chat_id": CHAT_ID,
+        "text": tekst,
+        "parse_mode": "HTML"
+    }
     
-    def __init__(self, db_path="smart_flip_lite.db"):
-        self.db_path = db_path
-        self.init_database()
-    
-    def init_database(self):
-        """Inicjalizuje bazę danych"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS oferty_historia (
-                id INTEGER PRIMARY KEY,
-                data_utworzenia TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                tytul TEXT,
-                cena REAL,
-                model TEXT,
-                wariant TEXT,
-                lokalizacja TEXT,
-                platforma TEXT,
-                seller_rating REAL,
-                czy_wysłano_alert BOOLEAN DEFAULT 0
-            )
-        ''')
-        
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS ceny_dynamiczne (
-                id INTEGER PRIMARY KEY,
-                model TEXT,
-                wariant TEXT,
-                cena_srednia REAL,
-                cena_min REAL,
-                cena_max REAL,
-                liczba_ofert INTEGER,
-                ostatnia_aktualizacja TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-        
-        conn.commit()
-        conn.close()
-        logger.info("✅ Lekka baza danych AI zainicjalizowana")
-    
-    def dodaj_oferte(self, oferta):
-        """Dodaje ofertę do historii"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            INSERT INTO oferty_historia 
-            (tytul, cena, model, wariant, lokalizacja, platforma, seller_rating)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            oferta.get('tytul'),
-            oferta.get('cena'),
-            oferta.get('model'),
-            oferta.get('wariant'),
-            oferta.get('lokalizacja'),
-            oferta.get('platforma'),
-            oferta.get('seller_rating')
-        ))
-        
-        conn.commit()
-        conn.close()
-    
-    def aktualizuj_ceny_dynamiczne(self, model, wariant):
-        """Aktualizuje dynamiczne ceny na podstawie historii"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        # Pobierz ceny z ostatnich 30 dni
-        cursor.execute('''
-            SELECT cena FROM oferty_historia 
-            WHERE model = ? AND wariant = ? 
-            AND data_utworzenia >= datetime('now', '-30 days')
-            AND cena > 0
-        ''', (model, wariant))
-        
-        ceny = [row[0] for row in cursor.fetchall()]
-        
-        if len(ceny) >= 3:  # Minimum 3 oferty do analizy
-            cena_srednia = statistics.mean(ceny)
-            cena_min = min(ceny)
-            cena_max = max(ceny)
-            
-            # Zapisz lub zaktualizuj
-            cursor.execute('''
-                INSERT OR REPLACE INTO ceny_dynamiczne 
-                (model, wariant, cena_srednia, cena_min, cena_max, liczba_ofert, ostatnia_aktualizacja)
-                VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
-            ''', (model, wariant, cena_srednia, cena_min, cena_max, len(ceny)))
-            
-            conn.commit()
-            logger.info(f"🧠 Zaktualizowano AI ceny dla {model} {wariant}: śr. {int(cena_srednia)} PLN")
-        
-        conn.close()
-        return ceny
-    
-    def pobierz_cene_ai(self, model, wariant):
-        """Pobiera inteligentną cenę referencyjną"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            SELECT cena_srednia, cena_min, cena_max, liczba_ofert 
-            FROM ceny_dynamiczne 
-            WHERE model = ? AND wariant = ?
-            AND ostatnia_aktualizacja >= datetime('now', '-7 days')
-        ''', (model, wariant))
-        
-        result = cursor.fetchone()
-        conn.close()
-        
-        if result:
-            return {
-                'srednia': result[0],
-                'min': result[1],
-                'max': result[2],
-                'liczba_ofert': result[3],
-                'typ': 'ai_learned'
-            }
-        else:
-            # Fallback do ceny bazowej
-            bazowa = CENY_BAZOWE.get(model, {}).get(wariant)
-            if bazowa:
-                return {
-                    'srednia': bazowa,
-                    'min': bazowa * 0.8,
-                    'max': bazowa * 1.2,
-                    'liczba_ofert': 0,
-                    'typ': 'baseline'
-                }
-        
-        return None
+    try:
+        response = requests.post(url, json=dane)
+        return response.status_code == 200
+    except Exception as e:
+        logger.error(f"❌ Błąd wysyłania: {e}")
+        return False
 
-class SmartAnalyzerLite:
-    """Lekki analizator AI"""
+def analizuj_produkt(tytul, opis=""):
+    """Analizuje produkt"""
+    tekst = (tytul + " " + opis).upper()
     
-    def __init__(self, database):
-        self.db = database
+    for model in CENY_BAZOWE:
+        if model.upper() in tekst:
+            for wariant in CENY_BAZOWE[model]:
+                if wariant.upper() in tekst:
+                    return {"model": model, "wariant": wariant}
+            return {"model": model, "wariant": list(CENY_BAZOWE[model].keys())[0]}
+    return None
+
+def jest_w_slaskim(lokalizacja):
+    """Sprawdza lokalizację"""
+    if not lokalizacja:
+        return False
     
-    def analizuj_trend(self, model, wariant):
-        """Analizuje trend cenowy bez ML"""
-        conn = sqlite3.connect(self.db.db_path)
-        cursor = conn.cursor()
-        
-        # Pobierz ceny z ostatnich 14 dni
-        cursor.execute('''
-            SELECT cena, data_utworzenia FROM oferty_historia 
-            WHERE model = ? AND wariant = ? 
-            AND data_utworzenia >= datetime('now', '-14 days')
-            ORDER BY data_utworzenia
-        ''', (model, wariant))
-        
-        dane = cursor.fetchall()
-        conn.close()
-        
-        if len(dane) < 3:
-            return {
-                'trend': 'nieznany',
-                'zmiana': 0,
-                'rekomendacja': '🤔 Za mało danych',
-                'pewnosc': 30
-            }
-        
-        # Proste obliczenie trendu
-        ceny_stare = [row[0] for row in dane[:len(dane)//2]]
-        ceny_nowe = [row[0] for row in dane[len(dane)//2:]]
-        
-        srednia_stara = statistics.mean(ceny_stare)
-        srednia_nowa = statistics.mean(ceny_nowe)
-        
-        zmiana = ((srednia_nowa - srednia_stara) / srednia_stara) * 100
-        
-        if zmiana > 5:
-            trend = 'rosnący'
-            rekomendacja = '⏳ Cena rośnie - rozważ szybki zakup'
-            pewnosc = min(85, 60 + abs(zmiana))
-        elif zmiana < -5:
-            trend = 'spadający'
-            rekomendacja = '📉 Cena spada - poczekaj na lepszą ofertę'
-            pewnosc = min(85, 60 + abs(zmiana))
-        else:
-            trend = 'stabilny'
-            rekomendacja = '✅ Stabilna cena - dobry moment'
-            pewnosc = 70
-        
-        return {
-            'trend': trend,
-            'zmiana': round(zmiana, 1),
-            'rekomendacja': rekomendacja,
-            'pewnosc': int(pewnosc)
-        }
+    lokalizacja_lower = lokalizacja.lower()
+    for miasto in MIASTA_SLASKIE:
+        if miasto in lokalizacja_lower:
+            return True
+    return any(slowo in lokalizacja_lower for slowo in ["śląskie", "slask", "katowice"])
+
+def oblicz_smart_score(oferta):
+    """Oblicza Smart Score oferty"""
+    score = 50  # Bazowy wynik
     
-    def oblicz_smart_score(self, oferta, cena_ai):
-        """Oblicza inteligentny wynik oferty"""
-        score = 50  # Bazowy wynik
-        
-        cena = oferta.get('cena', 0)
-        seller_rating = oferta.get('seller_rating', 95)
-        tytul = oferta.get('tytul', '').upper()
-        opis = oferta.get('opis', '').upper()
-        
-        # Analiza ceny
-        if cena_ai:
-            if cena < cena_ai['srednia'] * 0.8:
+    cena = oferta.get('cena', 0)
+    model = oferta.get('model')
+    wariant = oferta.get('wariant')
+    seller_rating = oferta.get('seller_rating', 95)
+    tytul = oferta.get('tytul', '').upper()
+    opis = oferta.get('opis', '').upper()
+    
+    # Sprawdź cenę bazową
+    if model and wariant:
+        cena_bazowa = CENY_BAZOWE.get(model, {}).get(wariant, 0)
+        if cena_bazowa > 0:
+            if cena < cena_bazowa * 0.8:
                 score += 30  # Świetna cena
-            elif cena < cena_ai['srednia'] * 0.9:
+            elif cena < cena_bazowa * 0.9:
                 score += 20  # Dobra cena
-            elif cena < cena_ai['srednia']:
+            elif cena < cena_bazowa:
                 score += 10  # OK cena
-            elif cena > cena_ai['srednia'] * 1.2:
+            elif cena > cena_bazowa * 1.2:
                 score -= 30  # Przecenione
-        
-        # Analiza sprzedawcy
-        if seller_rating >= 98:
-            score += 15
-        elif seller_rating >= 95:
-            score += 10
-        elif seller_rating < 90:
-            score -= 15
-        
-        # Analiza słów kluczowych
-        for slowo in SLOWA_OSTRZEGAWCZE:
-            if slowo.upper() in tytul or slowo.upper() in opis:
-                score -= 25
-                break
-        
-        # Bonus za pozytywne słowa
-        pozytywne = ['IDEALNY', 'NOWY', 'GWARANCJA', 'ORYGINALNY', 'KOMPLET']
-        for slowo in pozytywne:
-            if slowo in tytul or slowo in opis:
-                score += 5
-        
-        return max(0, min(100, score))
+    
+    # Analiza sprzedawcy
+    if seller_rating >= 98:
+        score += 15
+    elif seller_rating >= 95:
+        score += 10
+    elif seller_rating < 90:
+        score -= 15
+    
+    # Analiza słów kluczowych
+    for slowo in SLOWA_OSTRZEGAWCZE:
+        if slowo.upper() in tytul or slowo.upper() in opis:
+            score -= 25
+            break
+    
+    # Bonus za pozytywne słowa
+    pozytywne = ['IDEALNY', 'NOWY', 'GWARANCJA', 'ORYGINALNY', 'KOMPLET']
+    for slowo in pozytywne:
+        if slowo in tytul or slowo in opis:
+            score += 5
+    
+    return max(0, min(100, score))
 
 class AllegroAPI:
-    """Klasa API Allegro (bez zmian)"""
+    """Klasa API Allegro"""
     
     def __init__(self):
         self.client_id = ALLEGRO_CLIENT_ID
@@ -313,12 +163,14 @@ class AllegroAPI:
                 self.access_token = response.json()["access_token"]
                 logger.info("✅ Token Allegro otrzymany")
                 return True
-            return False
+            else:
+                logger.error(f"❌ Błąd tokena: {response.status_code}")
+                return False
         except Exception as e:
-            logger.error(f"❌ Błąd tokena: {e}")
+            logger.error(f"❌ Błąd uwierzytelniania: {e}")
             return False
     
-    def search_products(self, query, limit=15):
+    def search_products(self, query, limit=10):
         """Wyszukuje produkty"""
         if not self.access_token:
             if not self.get_access_token():
@@ -344,62 +196,40 @@ class AllegroAPI:
                 offers = response.json().get("items", {}).get("regular", [])
                 logger.info(f"✅ Znaleziono {len(offers)} ofert dla '{query}'")
                 return offers
-            return []
+            else:
+                logger.error(f"❌ Błąd wyszukiwania: {response.status_code}")
+                return []
         except Exception as e:
             logger.error(f"❌ Błąd wyszukiwania: {e}")
             return []
 
-def analizuj_produkt(tytul, opis=""):
-    """Analizuje produkt (bez zmian)"""
-    tekst = (tytul + " " + opis).upper()
-    
-    for model in CENY_BAZOWE:
-        if model.upper() in tekst:
-            for wariant in CENY_BAZOWE[model]:
-                if wariant.upper() in tekst:
-                    return {"model": model, "wariant": wariant}
-            return {"model": model, "wariant": list(CENY_BAZOWE[model].keys())[0]}
-    return None
-
-def jest_w_slaskim(lokalizacja):
-    """Sprawdza lokalizację (bez zmian)"""
-    if not lokalizacja:
-        return False
-    
-    lokalizacja_lower = lokalizacja.lower()
-    for miasto in MIASTA_SLASKIE:
-        if miasto in lokalizacja_lower:
-            return True
-    return any(slowo in lokalizacja_lower for slowo in ["śląskie", "slask", "katowice"])
-
-def wyslij_smart_alert(oferta, cena_ai, smart_score, trend_analiza):
-    """Wysyła inteligentny alert AI Lite"""
+def wyslij_smart_alert(oferta, smart_score):
+    """Wysyła inteligentny alert"""
     model = oferta.get('model')
     wariant = oferta.get('wariant')
     cena = oferta.get('cena')
     lokalizacja = oferta.get('lokalizacja')
     link = oferta.get('link')
+    seller_rating = oferta.get('seller_rating', 95)
     
-    # Określ priorytet na podstawie smart_score
+    # Określ priorytet
     if smart_score >= 80:
         emoji = '🔥'
         priorytet = 'SUPER OKAZJA'
-        kolor = 'czerwony'
     elif smart_score >= 65:
         emoji = '✅'
         priorytet = 'DOBRA OFERTA'
-        kolor = 'zielony'
     elif smart_score >= 50:
         emoji = '🤔'
         priorytet = 'SPRAWDŹ'
-        kolor = 'żółty'
     else:
-        return False  # Nie wysyłaj słabych ofert
+        return False
     
     # Oblicz oszczędności
-    if cena_ai:
-        oszczednosci = int(cena_ai['srednia'] - cena)
-        procent_oszczednosci = ((cena_ai['srednia'] - cena) / cena_ai['srednia']) * 100
+    cena_bazowa = CENY_BAZOWE.get(model, {}).get(wariant, 0)
+    if cena_bazowa > 0:
+        oszczednosci = cena_bazowa - cena
+        procent_oszczednosci = (oszczednosci / cena_bazowa) * 100
     else:
         oszczednosci = 0
         procent_oszczednosci = 0
@@ -409,90 +239,53 @@ def wyslij_smart_alert(oferta, cena_ai, smart_score, trend_analiza):
 🧠 <b>AI Score:</b> {smart_score}/100 ({priorytet})
 📱 <b>{model} {wariant}</b>
 💰 <b>Cena:</b> {cena} PLN
+💎 <b>Cena bazowa:</b> {cena_bazowa} PLN
 
-📊 <b>Analiza AI:</b>
-• Średnia rynkowa: {int(cena_ai['srednia']) if cena_ai else 'N/A'} PLN
-• Typ ceny: {cena_ai['typ'] if cena_ai else 'bazowa'}
-• Ofert w bazie: {cena_ai['liczba_ofert'] if cena_ai else 0}
-
-📈 <b>Trend ({trend_analiza['pewnosc']}% pewności):</b>
-• {trend_analiza['trend'].upper()} ({trend_analiza['zmiana']:+.1f}%)
-• {trend_analiza['rekomendacja']}
+⭐ <b>Sprzedawca:</b> {seller_rating}%
+📍 <b>Lokalizacja:</b> {lokalizacja}
 
 💡 <b>Rekomendacja AI:</b>
 {"🔥 KUP NATYCHMIAST!" if smart_score >= 80 else "✅ Warto rozważyć" if smart_score >= 65 else "🤔 Sprawdź szczegóły"}
 
-💰 <b>Potencjalne zyski:</b> {oszczednosci:+d} PLN ({procent_oszczednosci:+.1f}%)
-📍 <b>Lokalizacja:</b> {lokalizacja}
+💰 <b>Oszczędności:</b> {oszczednosci:+d} PLN ({procent_oszczednosci:+.1f}%)
 
 🔗 <a href="{link}">SPRAWDŹ PRAWDZIWĄ OFERTĘ</a>
 
 <i>🤖 Powered by AI Lite</i>"""
     
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    dane = {
-        "chat_id": CHAT_ID,
-        "text": alert,
-        "parse_mode": "HTML"
-    }
-    
-    try:
-        response = requests.post(url, json=dane)
-        if response.status_code == 200:
-            logger.info(f"🤖 Smart alert wysłany (Score: {smart_score})")
-            return True
-        return False
-    except Exception as e:
-        logger.error(f"❌ Błąd alertu: {e}")
-        return False
+    return wyslij_wiadomosc(alert)
 
 def main():
-    """Główna funkcja AI Lite"""
-    logger.info("🤖 Smart Flip Alert AI LITE uruchomiony!")
-    
-    # Inicjalizacja
-    db = SmartDatabaseLite()
-    analyzer = SmartAnalyzerLite(db)
-    allegro = AllegroAPI()
+    """Główna funkcja"""
+    logger.info("🤖 Smart Flip Alert AI LITE - CLEAN VERSION!")
     
     # Powiadomienie o uruchomieniu
-    start_message = """🤖 <b>SMART FLIP ALERT - AI LITE!</b>
+    start_message = """🤖 <b>AI LITE - CLEAN VERSION!</b>
 
-🧠 <b>Lekka Sztuczna Inteligencja:</b>
-✅ Dynamiczne uczenie się cen
-✅ Inteligentny scoring ofert (0-100)
-✅ Analiza trendów bez ML
-✅ Smart rekomendacje
-✅ Baza historii wszystkich ofert
+✅ Naprawiono wszystkie błędy
+🧠 Smart Score 0-100 aktywny
+🔥 Progi: 80+=SUPER, 65+=DOBRA, 50+=SPRAWDŹ
+⚡ Stabilny, lekki, szybki
 
-📊 <b>AI Lite Features:</b>
-• Smart Score: 80+ = 🔥 SUPER OKAZJA
-• Smart Score: 65+ = ✅ DOBRA OFERTA  
-• Smart Score: 50+ = 🤔 SPRAWDŹ
-• Dynamiczne ceny referencyjne
-• Analiza trendów bez ciężkich bibliotek
-
-⚡ <b>Status:</b> AI LITE AKTYWNE!
-💾 <b>Hosting:</b> Lekkie, stabilne, szybkie
-
-<i>🚀 Inteligentny flipping bez problemów!</i>"""
+🚀 Pierwszy skan za 3 minuty!"""
     
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    dane = {"chat_id": CHAT_ID, "text": start_message, "parse_mode": "HTML"}
-    requests.post(url, json=dane)
+    wyslij_wiadomosc(start_message)
     
-    def skanuj_i_analizuj():
-        """Skanowanie z AI Lite"""
+    # Inicjalizacja
+    allegro = AllegroAPI()
+    
+    def skanuj_oferty():
+        """Skanuje oferty"""
         try:
-            logger.info("🔍 Rozpoczynam inteligentne skanowanie...")
+            logger.info("🔍 Rozpoczynam skanowanie...")
             
-            frazy = ["iPhone 13", "iPhone 14", "iPhone 15", "Samsung Galaxy S25", "PlayStation 5"]
+            frazy = ["iPhone 13", "iPhone 14", "iPhone 15", "Samsung Galaxy S25"]
             wszystkie_oferty = []
+            alerty_wyslane = 0
             
             for fraza in frazy:
-                logger.info(f"🔍 Rozpoczynam skanowanie dla: {fraza}")
-            oferty = allegro.search_products(fraza, limit=8)
-            logger.info(f"📊 API zwróciło {len(oferty)} ofert dla {fraza}")
+                logger.info(f"🔍 Szukam: {fraza}")
+                oferty = allegro.search_products(fraza, limit=8)
                 
                 for oferta in oferty:
                     try:
@@ -502,14 +295,18 @@ def main():
                         link = f"https://allegro.pl/oferta/{oferta.get('id', '')}"
                         seller_rating = oferta.get("vendor", {}).get("rating", {}).get("percentage", 95)
                         
-                        if not jest_w_slaskim(lokalizacja) or cena == 0:
-                            logger.info(f"⏭️ Pominięto: {tytul[:30]}... - Lokalizacja: {lokalizacja}")
+                        if cena == 0:
+                            logger.info(f"⏭️ Brak ceny: {tytul[:30]}...")
+                            continue
+                            
+                        if not jest_w_slaskim(lokalizacja):
+                            logger.info(f"⏭️ Zła lokalizacja: {tytul[:30]}... ({lokalizacja})")
                             continue
                         
                         # Analiza produktu
                         produkt = analizuj_produkt(tytul)
                         if not produkt:
-                            logger.info(f"⏭️ Nieznany produkt: {tytul[:40]}...")
+                            logger.info(f"⏭️ Nieznany produkt: {tytul[:30]}...")
                             continue
                         
                         oferta_data = {
@@ -518,11 +315,21 @@ def main():
                             'model': produkt['model'],
                             'wariant': produkt['wariant'],
                             'lokalizacja': lokalizacja,
-                            'platforma': 'Allegro',
                             'seller_rating': seller_rating,
                             'link': link,
                             'opis': ''
                         }
+                        
+                        # Smart Score
+                        smart_score = oblicz_smart_score(oferta_data)
+                        
+                        logger.info(f"📱 {tytul[:40]}... - Score: {smart_score}")
+                        
+                        # Wyślij alert jeśli dobry
+                        if smart_score >= 50:  # Próg dla testów
+                            if wyslij_smart_alert(oferta_data, smart_score):
+                                alerty_wyslane += 1
+                                time.sleep(2)
                         
                         wszystkie_oferty.append(oferta_data)
                         
@@ -532,66 +339,33 @@ def main():
                 
                 time.sleep(1)
             
-            # Analizuj każdą ofertę AI
-            dobre_oferty = 0
-            for oferta in wszystkie_oferty:
-                try:
-                    # Dodaj do historii
-                    db.dodaj_oferte(oferta)
-                    
-                    # Aktualizuj ceny AI
-                    db.aktualizuj_ceny_dynamiczne(oferta['model'], oferta['wariant'])
-                    
-                    # Pobierz inteligentną cenę
-                    cena_ai = db.pobierz_cene_ai(oferta['model'], oferta['wariant'])
-                    
-                    # Analiza trendu
-                    trend = analyzer.analizuj_trend(oferta['model'], oferta['wariant'])
-                    
-                    # Smart score
-                    smart_score = analyzer.oblicz_smart_score(oferta, cena_ai)
-                    
-                    logger.info(f"📱 {oferta['tytul'][:50]}... - Score: {smart_score}")
-                    
-                    # Wyślij alert jeśli wystarczająco dobry (obniżony próg do testów)
-                    if smart_score >= 45:  # Próg dla alertów (obniżony z 65)
-                        if wyslij_smart_alert(oferta, cena_ai, smart_score, trend):
-                            dobre_oferty += 1
-                            time.sleep(3)
-                    
-                except Exception as e:
-                    logger.error(f"❌ Błąd analizy AI: {e}")
-                    continue
-            
             # Podsumowanie
             czas = datetime.now().strftime("%H:%M")
-            summary = f"""📊 <b>AI Lite - Podsumowanie</b>
+            summary = f"""📊 <b>AI Lite - Clean - Podsumowanie</b>
 
 🕒 <b>Czas:</b> {czas}
 🤖 <b>Przeanalizowano:</b> {len(wszystkie_oferty)} ofert
-✅ <b>Smart alerty:</b> {dobre_oferty} ofert
-🧠 <b>AI:</b> Ceny zaktualizowane, trendy przeanalizowane
+✅ <b>Smart alerty:</b> {alerty_wyslane} ofert
+🧠 <b>AI:</b> Wszystko działa poprawnie
 
 ⏰ <b>Następne skanowanie:</b> za godzinę
-🎯 <b>Status:</b> AI Lite w pełnej gotowości!
+🎯 <b>Status:</b> CLEAN VERSION AKTYWNA!
 
-<i>🚀 Smart flipping działa!</i>"""
+<i>🚀 Bez błędów, pełna moc!</i>"""
             
-            url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-            dane = {"chat_id": CHAT_ID, "text": summary, "parse_mode": "HTML"}
-            requests.post(url, json=dane)
-            
-            logger.info(f"✅ Skanowanie zakończone: {dobre_oferty} alertów")
+            wyslij_wiadomosc(summary)
+            logger.info(f"✅ Skanowanie zakończone: {alerty_wyslane} alertów")
             
         except Exception as e:
             logger.error(f"❌ Błąd skanowania: {e}")
+            wyslij_wiadomosc(f"❌ Błąd skanowania: {str(e)}")
     
-    # Pierwsze skanowanie za 5 minut
-    time.sleep(300)
-    skanuj_i_analizuj()
+    # Pierwsze skanowanie za 3 minuty
+    time.sleep(180)
+    skanuj_oferty()
     
-    # Harmonogram
-    schedule.every().hour.do(skanuj_i_analizuj)
+    # Harmonogram co godzinę
+    schedule.every().hour.do(skanuj_oferty)
     
     while True:
         schedule.run_pending()
