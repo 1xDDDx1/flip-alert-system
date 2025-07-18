@@ -490,7 +490,9 @@ def main():
             wszystkie_oferty = []
             
             for fraza in frazy:
-                oferty = allegro.search_products(fraza, limit=8)
+                logger.info(f"🔍 Rozpoczynam skanowanie dla: {fraza}")
+            oferty = allegro.search_products(fraza, limit=8)
+            logger.info(f"📊 API zwróciło {len(oferty)} ofert dla {fraza}")
                 
                 for oferta in oferty:
                     try:
@@ -501,11 +503,13 @@ def main():
                         seller_rating = oferta.get("vendor", {}).get("rating", {}).get("percentage", 95)
                         
                         if not jest_w_slaskim(lokalizacja) or cena == 0:
+                            logger.info(f"⏭️ Pominięto: {tytul[:30]}... - Lokalizacja: {lokalizacja}")
                             continue
                         
                         # Analiza produktu
                         produkt = analizuj_produkt(tytul)
                         if not produkt:
+                            logger.info(f"⏭️ Nieznany produkt: {tytul[:40]}...")
                             continue
                         
                         oferta_data = {
@@ -549,8 +553,8 @@ def main():
                     
                     logger.info(f"📱 {oferta['tytul'][:50]}... - Score: {smart_score}")
                     
-                    # Wyślij alert jeśli wystarczająco dobry
-                    if smart_score >= 65:  # Próg dla alertów
+                    # Wyślij alert jeśli wystarczająco dobry (obniżony próg do testów)
+                    if smart_score >= 45:  # Próg dla alertów (obniżony z 65)
                         if wyslij_smart_alert(oferta, cena_ai, smart_score, trend):
                             dobre_oferty += 1
                             time.sleep(3)
