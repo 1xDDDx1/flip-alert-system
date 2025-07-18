@@ -146,6 +146,8 @@ class AllegroAPI:
     def get_access_token(self):
         """Pobiera access token"""
         try:
+            logger.info(f"🔑 Próba uwierzytelnienia z Client ID: {self.client_id[:8]}...")
+            
             credentials = base64.b64encode(
                 f"{self.client_id}:{self.client_secret}".encode()
             ).decode()
@@ -159,12 +161,16 @@ class AllegroAPI:
             
             response = requests.post(f"{self.base_url}/auth/oauth/token", headers=headers, data=data)
             
+            logger.info(f"🔑 Odpowiedź uwierzytelnienia: {response.status_code}")
+            
             if response.status_code == 200:
-                self.access_token = response.json()["access_token"]
-                logger.info("✅ Token Allegro otrzymany")
+                token_data = response.json()
+                self.access_token = token_data["access_token"]
+                logger.info(f"✅ Token otrzymany: {self.access_token[:20]}...")
                 return True
             else:
                 logger.error(f"❌ Błąd tokena: {response.status_code}")
+                logger.error(f"❌ Odpowiedź: {response.text}")
                 return False
         except Exception as e:
             logger.error(f"❌ Błąd uwierzytelniania: {e}")
