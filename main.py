@@ -253,23 +253,51 @@ class WebScrapingEngine:
             url = f"https://allegro.pl/listing?string={query.replace(' ', '%20')}"
             
             logger.info(f"🔍 Skanowanie Allegro: {query}")
+            logger.info(f"🔗 URL: {url}")
             
             response = requests.get(url, headers=self.headers, timeout=15)
+            
+            logger.info(f"📊 Allegro response: {response.status_code}")
             
             if response.status_code == 200:
                 soup = BeautifulSoup(response.content, 'html.parser')
                 
+                # DEBUG - sprawdź co faktycznie zwraca strona
+                logger.info(f"🔍 Długość HTML: {len(response.content)}")
+                
                 # Znajdź oferty - różne selektory
                 ofertas = soup.find_all('div', {'data-role': 'offer'})
+                logger.info(f"📊 Znaleziono ofert (data-role): {len(ofertas)}")
                 
                 if not ofertas:
                     ofertas = soup.find_all('article', class_='mx7m_1')
+                    logger.info(f"📊 Znaleziono ofert (mx7m_1): {len(ofertas)}")
                 
                 if not ofertas:
-                    # Jeszcze inne selektory
                     ofertas = soup.find_all('div', class_='_1h7wt')
+                    logger.info(f"📊 Znaleziono ofert (_1h7wt): {len(ofertas)}")
                 
-                logger.info(f"📊 Znaleziono {len(ofertas)} ofert na Allegro")
+                if not ofertas:
+                    # Szukaj ANY div z ceną
+                    ofertas = soup.find_all('div', string=re.compile(r'\d+.*zł'))
+                    logger.info(f"📊 Znaleziono div z ceną: {len(ofertas)}")
+                
+                if not ofertas:
+                    # Fallback - symulowane oferty dla testów
+                    logger.warning("⚠️ Brak ofert na Allegro - używam testowych")
+                    return [
+                        {
+                            'tytul': f"{query} - Testowa oferta Allegro",
+                            'cena': 950,
+                            'platforma': 'Allegro (Test)',
+                            'url': 'https://allegro.pl/test',
+                            'lokalizacja': 'Katowice',
+                            'seller_rating': 95,
+                            'opis': 'Testowa oferta - web scraping w rozwoju'
+                        }
+                    ]
+                
+                logger.info(f"📊 Znaleziono łącznie {len(ofertas)} ofert na Allegro")
                 
                 for i, oferta in enumerate(ofertas[:max_results]):
                     try:
@@ -309,6 +337,8 @@ class WebScrapingEngine:
                                         'seller_rating': 95,
                                         'opis': ''
                                     })
+                                    
+                                    logger.info(f"✅ Znaleziono: {tytul} - {cena} PLN")
                     
                     except Exception as e:
                         logger.debug(f"❌ Błąd parsowania oferty {i}: {e}")
