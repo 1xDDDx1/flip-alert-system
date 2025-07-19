@@ -697,8 +697,9 @@ def main():
                 "Samsung Galaxy S25 Edge", "PlayStation 5", "Xbox Series X"
             ]
             
-            # Wybierz losowe produkty (3-5 na skanowanie)
-            selected_products = random.sample(produkty, random.randint(3, 5))
+            # Wybierz JEDEN produkt na skanowanie (Railway friendly)
+            selected_products = [random.choice(produkty)]
+            logger.info(f"🎯 Wybrany produkt: {selected_products[0]}")
             
             total_offers = 0
             
@@ -706,14 +707,16 @@ def main():
                 try:
                     logger.info(f"🔍 Skanowanie: {produkt}")
                     
-                    # OLX + Vinted
-                    olx_offers = scraper.skanuj_olx(produkt, max_results=4)
-                    time.sleep(2)
-                    vinted_offers = scraper.skanuj_vinted(produkt, max_results=2)
-                    time.sleep(2)
+                    # OLX tylko (Vinted może powodować problemy)
+                    olx_offers = scraper.skanuj_olx(produkt, max_results=3)
+                    time.sleep(1)  # Krótkie sleep
                     
-                    all_offers = olx_offers + vinted_offers
+                    # Vinted wyłączony tymczasowo
+                    vinted_offers = []
+                    
+                    all_offers = olx_offers
                     total_offers += len(all_offers)
+                    logger.info(f"📊 Łącznie: {len(all_offers)} ofert dla {produkt}")
                     
                     for oferta in all_offers:
                         try:
@@ -848,17 +851,17 @@ def main():
     # Daily report o północy
     schedule.every().day.at("22:00").do(daily_report)  # 22:00 UTC = 00:00 CET
     
-    # Start z opóźnieniem
-    logger.info("⏰ Pierwszy scan za 3 minuty...")
-    time.sleep(180)
+    # Start NATYCHMIAST zamiast sleep(180)
+    logger.info("🚀 Pierwszy scan NATYCHMIAST...")
     
-    # Pierwszy scan
+    # Pierwszy scan od razu
     hourly_scan()
     
+    # Potem normalny harmonogram
     # Główna pętla
     while True:
         schedule.run_pending()
-        time.sleep(60)
+        time.sleep(30)  # Krótsze sleep - Railway friendly
 
 if __name__ == "__main__":
     main()
