@@ -257,61 +257,54 @@ class SmartScraper:
         logger.info("🔍 Smart Scraper zainicjalizowany")
     
     def skanuj_olx(self, query, max_results=5):
-        """Skanuje OLX - ultra safe version"""
+        """Ultra lightweight OLX scraper"""
         offers = []
         
         try:
             logger.info(f"🔍 OLX START: {query}")
             
-            # Ultra simple URL (bez query params)
+            # Bardzo prosty URL
             url = f"https://www.olx.pl/oferty/q-{query.lower().replace(' ', '-')}/"
-            
             logger.info(f"🔗 URL: {url[:50]}...")
             
-            # Krótki timeout, basic headers
-            basic_headers = {'User-Agent': 'Mozilla/5.0'}
-            
-            response = requests.get(url, headers=basic_headers, timeout=5)
+            # Request z mniejszym timeout
+            response = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=3)
             logger.info(f"📊 Response: {response.status_code}")
             
             if response.status_code == 200:
-                # Ultra simple parsing - bez BeautifulSoup!
-                html = response.text
-                logger.info(f"📄 HTML length: {len(html)}")
+                # Ogranicz HTML do pierwszych 50KB (zamiast całego)
+                html = response.text[:50000]
+                logger.info(f"📄 HTML chunk: {len(html)} chars")
                 
-                # Regex parsing zamiast BeautifulSoup
-                import re
+                # Szybki regex - tylko 5 pierwszych cen
+                prices = re.findall(r'(\d{3,5})\s*zł', html)[:5]
+                logger.info(f"💰 Prices found: {len(prices)}")
                 
-                # Znajdź ceny
-                prices = re.findall(r'(\d{3,5})\s*zł', html)
-                logger.info(f"💰 Found prices: {len(prices)}")
-                
-                # Generuj proste oferty
-                for i, price_str in enumerate(prices[:3]):
+                # Generuj proste oferty bez skomplikowanych operacji
+                for i, price_str in enumerate(prices[:2]):  # Max 2 oferty
                     try:
                         price = int(price_str)
-                        if 100 <= price <= 10000:
-                            offer = {
-                                'tytul': f"{query} - Stan dobry",
+                        if 200 <= price <= 8000:  # Realistyczny zakres
+                            offers.append({
+                                'tytul': f"{query} - OLX",
                                 'cena': price,
                                 'lokalizacja': 'Śląskie',
                                 'platforma': 'OLX',
                                 'url': url,
                                 'seller_rating': 90,
                                 'opis': ''
-                            }
-                            offers.append(offer)
-                            logger.info(f"✅ Oferta {i+1}: {price} PLN")
+                            })
+                            logger.info(f"✅ Added: {price} PLN")
                     except:
                         continue
             
             else:
-                logger.warning(f"⚠️ Bad status: {response.status_code}")
+                logger.warning(f"⚠️ Status: {response.status_code}")
                 
         except Exception as e:
-            logger.error(f"❌ OLX error: {str(e)[:100]}")
+            logger.error(f"❌ Error: {str(e)[:50]}")
         
-        logger.info(f"📊 OLX result: {len(offers)} ofert")
+        logger.info(f"📊 Result: {len(offers)} offers")
         return offers
     
     def skanuj_vinted(self, query, max_results=3):
