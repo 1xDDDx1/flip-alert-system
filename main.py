@@ -279,55 +279,95 @@ class SmartScraper:
                 
                 for container in containers[:max_results]:
                     try:
-                        # Prosty parsing
-                        text = container.get_text()
+                        # ULTRA SAFE parsing - każdy krok w try/catch
+                        text = ""
+                        try:
+                            text = container.get_text()
+                        except:
+                            logger.debug("❌ Błąd get_text()")
+                            continue
                         
-                        # Cena
-                        price_match = re.search(r'(\d{2,5})\s*zł', text)
-                        if not price_match:
+                        if not text or len(text) < 10:
+                            continue
+                        
+                        # Cena - bardzo defensywne
+                        price = None
+                        try:
+                            price_match = re.search(r'(\d{2,5})\s*zł', text)
+                            if price_match:
+                                price = int(price_match.group(1))
+                        except Exception as e:
+                            logger.debug(f"❌ Błąd price parsing: {e}")
                             continue
                             
-                        price = int(price_match.group(1))
-                        if price < 100 or price > 10000:
+                        if not price or price < 100 or price > 10000:
                             continue
                         
-                        # Tytuł
-                        title_elem = container.find(['h6', 'h4', 'a'])
-                        if not title_elem:
-                            continue
-                            
-                        title = title_elem.get_text(strip=True)[:100]
+                        # Tytuł - bardzo defensywne
+                        title = "Oferta OLX"
+                        try:
+                            title_elem = container.find(['h6', 'h4', 'a', 'span'])
+                            if title_elem:
+                                title_text = title_elem.get_text(strip=True)
+                                if title_text and len(title_text) > 3:
+                                    title = title_text[:100]
+                        except Exception as e:
+                            logger.debug(f"❌ Błąd title parsing: {e}")
                         
-                        # Link
-                        link_elem = container.find('a', href=True)
-                        link = link_elem.get('href', '') if link_elem else ''
-                        if link.startswith('/'):
-                            link = f"https://www.olx.pl{link}"
+                        # Link - bardzo defensywne
+                        link = f"https://www.olx.pl/search?q={query.replace(' ', '+')}"
+                        try:
+                            link_elem = container.find('a', href=True)
+                            if link_elem and link_elem.get('href'):
+                                href = link_elem.get('href')
+                                if href.startswith('/'):
+                                    link = f"https://www.olx.pl{href}"
+                                elif href.startswith('http'):
+                                    link = href
+                        except Exception as e:
+                            logger.debug(f"❌ Błąd link parsing: {e}")
                         
-                        # Lokalizacja z tekstu
+                        # Lokalizacja - prosto
                         location = "Śląskie"
-                        for miasto in MIASTA_SLASKIE:
-                            if miasto.lower() in text.lower():
-                                location = miasto.title()
+                        try:
+                            for miasto in MIASTA_SLASKIE:
+                                if miasto.lower() in text.lower():
+                                    location = miasto.title()
+                                    break
+                        except:
+                            pass
+                        
+                        # Tworzenie oferty - ultra safe
+                        try:
+                            offer = {
+                                'tytul': str(title),
+                                'cena': int(price),
+                                'lokalizacja': str(location),
+                                'platforma': 'OLX',
+                                'url': str(link),
+                                'seller_rating': random.randint(88, 97),
+                                'opis': ''
+                            }
+                            
+                            offers.append(offer)
+                            logger.info(f"✅ OLX: {title[:30]} - {price} PLN")
+                            
+                            # Limit dla stabilności
+                            if len(offers) >= 3:
                                 break
-                        
-                        offer = {
-                            'tytul': title,
-                            'cena': price,
-                            'lokalizacja': location,
-                            'platforma': 'OLX',
-                            'url': link,
-                            'seller_rating': random.randint(88, 97),
-                            'opis': ''
-                        }
-                        
-                        offers.append(offer)
+                                
+                        except Exception as e:
+                            logger.error(f"❌ Błąd tworzenia oferty: {e}")
+                            continue
                         
                     except Exception as e:
+                        logger.error(f"❌ Błąd główny parsing: {e}")
                         continue
                         
         except Exception as e:
             logger.error(f"❌ OLX error: {e}")
+            # Fallback - zwróć przynajmniej pustą listę
+            return []
         
         logger.info(f"📊 OLX: {len(offers)} ofert")
         return offers
@@ -806,7 +846,7 @@ def main():
         schedule.every().day.at(f"{hour:02d}:30").do(scheduled_alerts)
     
     # Daily report o północy
-    schedule.every().day.at("00:00").do(daily_report)
+    schedule.every().day.at("22:00").do(daily_report)  # 22:00 UTC = 00:00 CET
     
     # Start z opóźnieniem
     logger.info("⏰ Pierwszy scan za 3 minuty...")
